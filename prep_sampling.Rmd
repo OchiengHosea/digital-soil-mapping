@@ -1,0 +1,112 @@
+---
+title: "Projections Resampling and Rasterisation"
+author: "OchiengHosea"
+date: "10/12/2020"
+output: html_document
+---
+# Load libraries
+```{r}
+library(raster)
+library(rgdal)
+library(sp)
+```
+# Data Preparation
+## we shall be working with 3 ranster, ech covering the same geographical area,
+## but have different projection systems, resolutions and spatial extents
+
+```{r}
+setwd(getwd())
+```
+
+```{r list all tiff rasters in this directory}
+files <- list.files(".", pattern="tif$", full.names = T)
+files
+```
+# RASTER 1: remote sensing data
+```{r load the first raster}
+rs.raster = raster(files[1])
+rs.raster
+```
+# RASTER 2: Digital elevation model
+```{r}
+elev.raster <- raster(files[2])
+elev.raster
+```
+# RASTER 3: Very granular gamma radiometrics data
+```{r}
+gamma.raster <- raster(files[3])
+gamma.raster
+```
+# Raster Resampling
+here we want to get elev.raster to be the same resolution and extent to the gamma.raster. Essentially going from 100m grid cell to a 10m grid cell
+The resampling method used is bi-linear interpolation. The alternative is nearest neighbor interpolation
+```{r}
+rs.grid <- resample(x = elev.raster, y = gamma.raster, method = 'bilinear')
+rs.grid
+```
+```{r}
+r3 <- stack(rs.grid, gamma.raster)
+r3
+```
+# Simultaneous Reprojection and resampling
+`projectRaster` function is used for changing data from one projection system to another. it also does resampling to by default where the raster to be processed are given the same CRS, resolution and extent as target raster.
+
+```{r}
+pl.grid <- projectRaster(from = rs.raster, to = elev.raster, method = 'ngb')
+r4 <- stack(pl.grid, elev.raster)
+r4
+```
+# Reprojection and resolution change
+One can reproject to a common CRS but set the resolution to what is desired
+
+### Reproject and resmple at 50m pixels
+
+```{r}
+pl.grid50 <- projectRaster(from = rs.raster, crs = crs(elev.raster), method = "ngb", res = 50)
+pl.grid50
+```
+# Polygon reprojection
+```{r}
+poly.dat <- readOGR("soilMap/Soils_Curlewis_GDA94.shp")
+poly.dat
+```
+more details about the shapefile
+```{r}
+head(poly.dat@data)
+summary(poly.dat@data$CODE)
+```
+Changing the projection
+```{r}
+newProj <- "+proj=lcc +lat_1=-18 +lat_2=-36 +lat_0=0 +lon_0=134 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs"
+poly.dat.T <- spTransform(poly.dat, CRSobj = newProj)
+class(poly.dat.T)
+```
+confirm it worked
+
+```{r}
+plot(pl.grid)
+plot(poly.dat.T, add = T)
+invisible(text(getSpPPolygonsLabptSlots(poly.dat.T), labels = as.character(poly.dat.T@data$CODE), cex = 1.2))
+```
+# Resterization
+```{r}
+poly.raster <- rasterize(poly.dat.T, pl.grid50, field = "CODE")
+names(poly.raster) <- "soil_map_CODE"
+r5 <- stack(pl.grid50, poly.raster)
+r5
+```
+
+```{r}
+r2 <- as.factor(r2)
+rat <- levels(r2)[[1]]
+
+# Match raster levels to polygon code
+m1 <- c(as.matrix(levels(r2)[[1]]))
+m2 <- levels(poly.dat@data$CODE)[m1]
+rat[["code"]] <- c(m2)
+levels(r2) <- rat
+
+# plot
+rasterVis::levelplot(r2, xlab = "", ylab = "")
+```
+

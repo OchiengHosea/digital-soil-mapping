@@ -1,0 +1,38 @@
+---
+title: "Interactive Mapping using R"
+author: "OchiengHosea"
+date: "10/12/2020"
+output: html_document
+---
+```{r}
+# load packages
+library(leaflet)
+library(magrittr)
+library(ithir)
+library(sp)
+library(raster)
+library(RColorBrewer)
+library(rgdal)
+```
+
+```{r}
+data(HV100)
+str(HV100)
+```
+define which columns in the dataframe refer to actual spatial cordinates
+```{r}
+coordinates(HV100) <- ~x + y
+str(HV100)
+```
+Set the projection
+```{r}
+proj4string(HV100) <- CRS("+init=epsg:32756")
+HV100@proj4string
+```
+We can then export out the transformed HV100 to KML and visualize on Google Earth
+
+```{r}
+HV100.ll <- spTransform(HV100, CRS("+init=epsg:4326"))
+writeOGR(HV100.ll, "HV100.kml", "ID", "KML")
+```
+

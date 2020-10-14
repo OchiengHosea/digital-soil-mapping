@@ -1,0 +1,41 @@
+---
+title: "Preparatory and Exploratory Analysis for Digital Soil Mapping"
+author: "OchiengHosea"
+date: "10/12/2020"
+output: html_document
+---
+# Fir mss preserving splines with R
+We have measurements of soil carbon density to a given maximum depth.
+
+Load the packages and data
+
+```{r}
+library(ithir)
+library(raster)
+library(sp)
+
+# ithir dataset
+data("oneProfile")
+str(oneProfile)
+```
+As you can see above, the data table shows the soil depth information and carbon density values for a single soil profile
+
+The ea_spline function will predict a continuous function from the top of the soil profile to the maximum soil depth, such that it will interpolate values both within the observed depths and between the depths where there is no observation.
+
+```{r}
+eaFit <- ea_spline(oneProfile, var.name = "C.kg.m3.", d = t(c(0, 5, 15, 30, 60, 100, 200)), lam=0.1, vlow=0, show.progress = FALSE)
+str(eaFit)
+```
+```{r}
+par(mfrow = c(3, 1))
+for (i in 1:3){
+  plot_ea_spline(splineOuts = eaFit, d = t(c(0, 5, 15, 30, 60, 100, 200)), maxd = 200, type = i, plot.which = 1, label = 'carbon density')
+}
+```
+Fitting splines to multiple profiles
+```{r}
+Carbon_10sites <- read.csv('data/Carbon_10sites.csv')
+eaFit <- ea_spline(obj = Carbon_10sites, var.name = 'C.kg.m3.', d=t(c(0, 5, 15, 30, 60, 100, 200)), lam = 0.1, vlow = 0, show.progress = FALSE)
+str(eaFit)
+```
+
