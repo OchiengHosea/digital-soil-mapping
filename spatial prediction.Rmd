@@ -1,0 +1,93 @@
+---
+title: "Spatial Prediction"
+author: "OchiengHosea"
+date: "10/17/2020"
+output: html_document
+---
+
+# Applying models spatially
+
+Here we will provide a brief overview of how applying models to unseen data. The general idea is that one has fitted a model to predict some soil phenomena using a suite of environmental covariates. Now you need to use that model to apply to a the same covariates, but now these covariates have continuous coverage across the area. Essentially you want to create a soil map. There are a couple of ways to go about this. First things first we need to prepare some data and fit a simple model.
+
+Data preparation
+Model fitting
+Apply model: Covariate data frame
+Apply model: raster predict function
+Apply model: Parallel processing
+
+# Data preparation
+
+Recall from before in the data preparatory exercises that we were working with the soil point data and environmental covariates for the Hunter Valley area. These data are stored in the HV_subsoilpH and hunterCovariates_sub objects from the ithir package.
+```{r}
+# Load libraries and data
+library(ithir)
+library(raster)
+library(rgdal)
+library(sp)
+
+# Point data
+data("HV_subsoilpH")
+
+# round soil ph to 2dp
+HV_subsoilpH$pH60_100cm <- round(HV_subsoilpH$pH60_100cm, 2)
+
+# Remove already intersected data
+HV_subsoilpH <- HV_subsoilpH[, 1:3]
+# add an id column
+HV_subsoilpH$id = seq(1, nrow(HV_subsoilpH), by = 1)
+# rearrange the order of columns
+HV_subsoilpH <- HV_subsoilpH[, c(4, 1, 2, 3)]
+# Change the names of coordinate columns
+names(HV_subsoilpH)[2:3] <- c("x", "y")
+
+# grids(covariate raster)
+data("hunterCovariates_sub")
+```
+
+```{r}
+# Perfomr the covariate intersection
+coordinates(HV_subsoilpH) <- ~x + y
+# extract
+DSM_data <- extract(hunterCovariates_sub, HV_subsoilpH, sp = 1, method = 'simple')
+DSM_data <- as.data.frame(DSM_data)
+str(DSM_data)
+```
+# Model Fitting
+```{r}
+hv.MLR.Full <- lm(pH60_100cm ~ +Terrain_Ruggedness_Index + AACN + Landsat_Band1 + Elevation + Hillshading + Light_insolation + Mid_Slope_Positon + MRVBF + NDVI + TWI + Slope, data = DSM_data)
+summary(hv.MLR.Full)
+```
+# Applying the model spatially using data frames
+```{r}
+tempD <- data.frame(cellNos = seq(1:ncell(hunterCovariates_sub)))
+vals <- as.data.frame(getValues(hunterCovariates_sub))
+tempD <- cbind(tempD, vals)
+cellNos <- c(tempD$cellNos)
+gXY <- data.frame(xyFromCell(hunterCovariates_sub, cellNos, spatial = FALSE))
+tempD <- cbind(gXY, tempD)
+str(tempD)
+```
+
+```{r}
+map.MLR <- predict(hv.MLR.Full, newdata = tempD)
+map.MLR <- cbind(data.frame(tempD[, c("x", "y")]), map.MLR)
+
+# Rasterize the predictions for mapping
+map.MLR.r <- rasterFromXYZ(as.data.frame(map.MLR[, 1:3]))
+plot(map.MLR.r,  main = "MLR predicted soil pH (60-100cm)")
+
+crs(map.MLR.r) <- "+proj=utm +zone=56 + south + ellps=WGS84 +datum=WGS84 +units=m +no_defs"
+
+writeRaster(map.MLR.r, "soilpH_60_100_MLR.tif", format = "GTiff", datatype = "FLT4S", overwrite = TRUE)
+```
+# Applying the spatial model spatially using parallel processing
+## Using 4 compute nodes to apply the hv.MLR.Full model to the hunterCovariates_sub raster stack
+```{r}
+library(parallel)
+beginCluster(4)
+cluserMLR.pred <- clusterR(hunterCovariates_sub, predict, args = list(hv.MLR.Full), 
+    filename = "soilpH_60_100_MLR_pred.tif", format = "GTiff", progress = FALSE, 
+    overwrite = T)
+endCluster()
+```
+
