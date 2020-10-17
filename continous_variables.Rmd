@@ -1,0 +1,118 @@
+---
+title: "Data modelling with continous type target variables"
+author: "OchiengHosea"
+date: "10/14/2020"
+output: html_document
+---
+```{r}
+library(ithir)
+library(MASS)
+data("USYD_soil1")
+soil.data <- USYD_soil1
+mod.data <- na.omit(soil.data[, c("clay", "CEC")])
+mod.l <- lm(CEC ~ clay, data = mod.data, y = TRUE, x = TRUE)
+mod.l
+```
+
+```{r}
+goof(observed = mod.data$CEC, predicted = mod.l$fitted.values, type = "DSM")
+```
+# Cross Validation
+## Leave-One-Out Cross validation
+LOCV follows the logic that if we had n number of data, we would subset n-1 of these data, and fit a model with these data. Using this model we would make a prediction for the single data that was left out of the model (and save the residual). This is repeated for all n. LOCV would be undertaken when there are very few data to work with. When we can sacrifice a few data points, the random-hold back or k-fold cross-validation or a bootstapping procedure would be acceptable.
+
+At the most basic level, LOCV involves the use of a looping function or for loop. Essentially they can be used to great effect when we want to perform a particular analysis over-and-over which was done above for the repeated random subsetting. For example with LOCV, for each iteration or loop we take a subset of n-1 rows and fit a model to them, then use that model to predict for the point left out of the calibration. Computationally it will look something like below.
+
+```{r}
+loopRed <- numeric(nrow(mod.data))
+for (i in 1:nrow(mod.data)) {
+  loopModel <- lm(CEC ~ clay, data = mod.data[-i, ], y=TRUE, x = TRUE)
+  loopRed <- predict(loopModel, newData = mod.data[i, ])
+}
+goof(predicted = loopRed, observed = mod.data$CEC)
+```
+LOCV will generally be less sensitive to outliers, so overall these external validation results are not too different to those when we performed the internal validation. Make a plot of the LOCV results to visually compare against the internal validation.
+
+#Random holdback subsetting
+We will do the random-back validation using 70% of the data for calibration. A random sample of the data will be performed using the sample function.
+
+```{r}
+set.seed(123)
+training <- sample(nrow(mod.data), 0.7 * nrow(mod.data), replace = FALSE)
+training
+```
+```{r}
+mod.rh <- lm(CEC ~ clay, data = mod.data[training, ], y=TRUE, x=TRUE)
+# How does the model perform on validation data
+mod.rh.V <- predict(mod.rh, mod.data[-training, ])
+goof(predicted = mod.rh.V, observed = mod.data$CEC[-training], plot.it = TRUE)
+```
+```{r}
+validation.outs <- matrix(NA, nrow = 5, ncol = 6)
+for (i in 1:5) {
+  training <- sample(nrow(mod.data), 0.7 * nrow(mod.data), replace = FALSE)
+  mod.rh <- lm(CEC ~ clay, data = mod.data[training, ], y = TRUE, x = TRUE)
+  mod.rh.V <- predict(mod.rh, mod.data[-training, ])
+  validation.outs[i, 1] <- i
+  validation.outs[i, 2:6] <- as.matrix(goof(predicted = mod.rh.V, observed = mod.data$CEC[-training]))
+}
+
+validation.outs <- as.data.frame(validation.outs)
+names(validation.outs) <- c("iteration", "R2", "concordance", "MSE", "RMSE", "bias")
+
+validation.outs
+```
+# K-fold cross validation
+
+```{r}
+validation.outs <- matrix(NA, nrow = 4000, ncol = 6)
+cnt <- 1
+for (j in 1:1000) {
+  folds <- rep(1:4, length.out = nrow(mod.data))
+  rs <- sample(1:nrow(mod.data), replace = F)
+  rs.folds <- folds[order(rs)]
+  
+  # model fitting for each combination of folds
+  
+  for (i in 1:4) {
+    training <- which(rs.folds != 1)
+    mod.rh <- lm(CEC ~ clay, data = mod.data[training, ], y = TRUE, x = TRUE)
+    mod.rh.V <- predict(mod.rh, mod.data[-training, ])
+    validation.outs[cnt, 1] <- cnt
+    validation.outs[cnt, 2:6] <- as.matrix(goof(predicted = mod.rh.V, observed = mod.data$CEC[-training]))
+    cnt <- cnt + 1
+  }
+}
+
+validation.outs <- as.data.frame(validation.outs)
+names(validation.outs) <- c("iteration", "R2", "concordance", "MSE", "RMSE", "bias")
+# Average goodness of fit measures
+apply(validation.outs[, 2:6], 2, mean)
+# Standard deviation of goodness of fit measures
+apply(validation.outs[, 2:6], 2, sd)
+```
+# Bootstrapping
+```{r}
+validation.outs <- matrix(NA, nrow = 4000, ncol = 6)
+for (j in 1:4000) {
+  rs <- sample(1:nrow(mod.data), replace = T)
+  urs <- unique(rs)
+  # calibration data
+  cal.dat <- mod.data[urs, ]
+  # validation data
+  val.dat <- mod.data[-urs, ]
+  # Model fitting
+  mod.rh <- lm(CEC ~ clay, data = cal.dat, y = TRUE, x = TRUE)
+  mod.rh.V <- predict(mod.rh, val.dat)
+  validation.outs[j, 1] <- cnt
+  validation.outs[j, 2:6] <- as.matrix(goof(predicted = mod.rh.V, observed = val.dat$CEC))
+}
+```
+```{r}
+
+validation.outs <- as.data.frame(validation.outs)
+names(validation.outs) <- c("iteration", "R2", "concordance", "MSE", "RMSE", "bias")
+apply(validation.outs[, 2:6], 2, mean)
+apply(validation.outs[, 2:6], 2, sd)
+```
+
